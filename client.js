@@ -14,6 +14,7 @@ const base_url = "http://localhost:";
 var PORT = 3000
 PRIVATE_KEY = generateKey(9999)
 var TOKEN = ""
+var SERVER_TOKEN = ""
 
 if (process.argv.length > 2) {
     PORT = process.argv[2]
@@ -46,28 +47,23 @@ async function getToken(){
         const response = await axios.get(temp, {params: {port: PORT, key: PUBLIC_KEY}})
         console.log(response.data.token)
         TOKEN = response.data.token
+        SERVER_TOKEN = response.data.server_token
         return response.data.token
     } catch (error) {
         console.error(error)
     }
 }
 
-// ask to start a conversation with a given dst(port)
-// based on public key
-// the receiver then ask the aut server if the key + port is valid
-// if yes then the conversation starts and both clients can talk
-// until endConversation is called by any of the clients
-// if false then the conversation is not started
-function startConversation(dst) {
-    //var temp = url + dst +"/startconv/" + port.toString() + "/" + PUBLIC_KEY
-
-}
-
-
 // used to receive messages
 app.post("/msg", (req, res) => {
     let msg = req.query.msg
     let port = req.query.port
+    // need to verify the auth token from the server sending the msg
+    let token = req.query.token
+    if (token != SERVER_TOKEN) {
+        // console.log("Auth token not valid")
+        return res.status(404).send("Auth token not valid")
+    }
     console.log(`[Received Message]  ${port}: ${msg}`)
 
     return res.status(200).send("message received")
@@ -89,7 +85,7 @@ async function sendMsgToAll(msg){
 // only if the aut server validates the key + port of both clients
 app.get("/talk/:msg", (req, res) => {
     let msg = req.params.msg
-    //console.log(msg)
+
     // send message to dst
     sendMsgToAll(msg)
     return res.status(200).send("message sent")

@@ -6,10 +6,11 @@ const app = express()
 var port = 3001
 app.use(cors())
 
+AUT_TOKEN = "auttoken"
 
 VALID_TOKENS = []
 VALID_KEYS = []
-VALID_PORTS = ["3030", "3060"]
+VALID_PORTS = []
 
 BANNED_TOKENS = []
 BANNED_KEYS = []
@@ -34,7 +35,7 @@ app.get("/gettoken", (req, res) => {
     }
 
     // generate a token
-    let token = Math.random().toString(36).substring(7)
+    let token = Math.random().toString(36).substring(7) + key
     console.log("generated token: " + token)
 
     // add token, key and port to validation list
@@ -49,14 +50,14 @@ app.get("/gettoken", (req, res) => {
     console.log("\n")
 
     // return token
-    return res.status(200).json({ token: token })
+    return res.status(200).json({ token: token, server_token: AUT_TOKEN })
 })
 
 
 async function sendMsg(dst, msg, src) {
     var url = "http://localhost:" + dst + "/msg"
     //console.log("Aut server sending msg to: " + url)
-    const response = await axios.post(url, null, {params: {port: src, msg: msg}})
+    const response = await axios.post(url, null, {params: {token: AUT_TOKEN, port: src, msg: msg}})
     .then((response) => {
         console.log(`msg sent to ${dst}`)
     })
@@ -84,6 +85,10 @@ app.post("/msg", (req, res) => {
         return res.status(404).send("token not valid")
     }
 
+    if (VALID_PORTS.findIndex(element => element == port) != VALID_TOKENS.findIndex(element => element == token)) {
+        console.log(`Auth token not valid for port ${port}`)
+        return res.status(404).send("token not valid for port")
+    }	
     // send message to all valid clients
     for (let i = 0; i < VALID_TOKENS.length; i++) {
         if (VALID_TOKENS[i] != token) {
@@ -97,28 +102,6 @@ app.post("/msg", (req, res) => {
 
 })
 
-
-
-
-
-
-// for debug
-app.get("/", (req, res) => { 
-    console.log("Hello World from aut")
-    return res.status(200).send("Hello World")
-})
-
-// for debug
-app.get("/:id", (req, res) => {
-    console.log("received params: " + req.params.id)
-    return res.status(200)
-})
-
-// for debug
-app.post("/test", (req, res) => {
-    console.log("Hello World from aut")
-    return res.status(200).send("Hello World")
-})
 
 
 app.listen(port, () => {console.log("Aut server is running on port: " + port)})
