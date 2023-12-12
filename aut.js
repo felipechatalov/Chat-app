@@ -73,6 +73,12 @@ app.post("/msg", (req, res) => {
     
     console.log(`received querry token, port, msg: ${token}, ${port}, ${msg}`)
 
+    // check if token or port is banned
+    if (BANNED_TOKENS.includes(token) || BANNED_PORTS.includes(port)) {
+        console.log(`user with port: ${port} and token ${token} banned`)
+        return res.status(404).send("User banned")
+    }
+
     // check if port is valid
     if (!VALID_PORTS.includes(port)) {
         console.log(`port ${port} not valid`)
