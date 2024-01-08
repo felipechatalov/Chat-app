@@ -14,7 +14,7 @@ const base_url = "http://localhost:";
 var PORT = 3000
 PRIVATE_KEY = generateKey(9999)
 var TOKEN = ""
-var SERVER_TOKEN = ""
+var SERVER_TOKEN = "publicservertoken"
 
 if (process.argv.length > 2) {
     PORT = process.argv[2]
@@ -41,17 +41,17 @@ function generateKey(x) {
 // the server then holds the public key and the port associated with the given token
 // for future validation
 async function getToken(){
-    var temp = base_url + "3001/gettoken"
+    var temp = base_url + "8080/gettoken"
     console.log("asking for token: " + temp)
-    try {
-        const response = await axios.get(temp, {params: {port: PORT, key: PUBLIC_KEY}})
-        console.log(response.data.token)
+    await axios.get(temp, {params: {port: PORT, key: PUBLIC_KEY}})
+    .then((response) => {
         TOKEN = response.data.token
-        SERVER_TOKEN = response.data.server_token
+        console.log(`[Token Received]    ${PORT}: ${TOKEN}`)
         return response.data.token
-    } catch (error) {
+    })
+    .catch((error) => {
         console.error(error)
-    }
+    })
 }
 
 // used to receive messages
@@ -71,20 +71,28 @@ app.post("/msg", (req, res) => {
 
 
 async function sendMsgToAll(msg){
-    var url = base_url + "3001/msg"
-    try {
-        const response = await axios.post(url, null, {params: {token: TOKEN, port: PORT, msg: msg}})
+    var url = base_url + "8080/msg"
+    // try {
+    //     const response = await axios.post(url, null, {params: {token: TOKEN, port: PORT, msg: msg}})
+    //     console.log(`[Sent Message]      ${PORT}: ${msg}`)
+    //     return response.data
+    // } catch (error) {
+    //     console.error(error)
+    // }
+    axios.post(url, null, {params: {token: TOKEN, port: PORT, msg: msg}})
+    .then((response) => {
         console.log(`[Sent Message]      ${PORT}: ${msg}`)
-        return response.data
-    } catch (error) {
+    })
+    .catch((error) => {
         console.error(error)
-    }
+    })
+
 }
 
 // used to send messages after a conversation is started
 // only if the aut server validates the key + port of both clients
-app.get("/talk/:msg", (req, res) => {
-    let msg = req.params.msg
+app.get("/talk", (req, res) => {
+    let msg = req.query.msg
 
     // send message to dst
     sendMsgToAll(msg)

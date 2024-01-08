@@ -6,7 +6,9 @@ const app = express()
 var port = 3001
 app.use(cors())
 
-AUT_TOKEN = "auttoken"
+PRIVATE_AUT_TOKEN = "privateauttoken"
+
+PRIVATE_SERVER_TOKEN = "privateservertoken"
 
 VALID_TOKENS = []
 VALID_KEYS = []
@@ -21,19 +23,32 @@ BANNED_PORTS = []
 app.get("/gettoken", (req, res) => {
     let key = req.query.key
     let port = req.query.port
-    console.log(`querry key, port: ${key}, ${port}`)
+    let server_token = req.query.server_token
+    console.log(`querry key, port: ${key}, ${port}, ${server_token}`)
 
-    // check for asker port
-    if (!VALID_PORTS.includes(port)) {
-        console.log("port not valid")
-        return res.status(404).send("port not valid")
+
+
+    // check if key is from server
+    if (server_token != PRIVATE_SERVER_TOKEN) {
+        console.log("Server key not valid")
+        return res.status(404).send("Server key not valid")
     }
     //chech if key is already validated
     if (VALID_KEYS.includes(key)) {
         console.log("key already validated")
         return res.status(404).send("key already validated")
     }
-
+    // check if port is valid 
+    if (VALID_PORTS.includes(port)) {
+        console.log("port already validated")
+        return res.status(404).send("port already validated")
+    }
+    // check if port is banned
+    if (BANNED_PORTS.includes(port) || BANNED_KEYS.includes(key)) {
+        console.log("port/key banned")
+        return res.status(404).send("port/key banned")
+    }
+  
     // generate a token
     let token = Math.random().toString(36).substring(7) + key
     console.log("generated token: " + token)
@@ -49,63 +64,50 @@ app.get("/gettoken", (req, res) => {
     console.log("ports: " + VALID_PORTS)
     console.log("\n")
 
+    // update server valid ports
+    axios.post("http://localhost:8080/clients", null, 
+    {params: {aut_token: PRIVATE_AUT_TOKEN, valid_ports: VALID_PORTS.join(",")}})
+
     // return token
-    return res.status(200).json({ token: token, server_token: AUT_TOKEN })
+    return res.status(200).json({ token: token})
 })
 
 
 async function sendMsg(dst, msg, src) {
-    var url = "http://localhost:" + dst + "/msg"
-    //console.log("Aut server sending msg to: " + url)
-    const response = await axios.post(url, null, {params: {token: AUT_TOKEN, port: src, msg: msg}})
-    .then((response) => {
-        console.log(`msg sent to ${dst}`)
-    })
-    .catch((error) => {
-        console.error(error)
-    })
+    
 }
 
-app.post("/msg", (req, res) => {
+app.get("/auth", (req, res) => {
     let token = req.query.token
     let port = req.query.port
-    let msg = req.query.msg
-    
-    console.log(`received querry token, port, msg: ${token}, ${port}, ${msg}`)
+    let server_token = req.query.server_token
+    console.log(`received querry token, port, server_token: ${token}, ${port}, ${server_token}`)
+
+    // check if server token is valid
+    if (server_token != PRIVATE_SERVER_TOKEN) {
+        console.log("Server key not valid")
+        return res.status(404).send({auth: false})
+    }
 
     // check if token or port is banned
-    if (BANNED_TOKENS.includes(token) || BANNED_PORTS.includes(port)) {
-        console.log(`user with port: ${port} and token ${token} banned`)
-        return res.status(404).send("User banned")
+    if (BANNED_TOKENS.includes(token)) {
+        console.log(`user with token ${token} banned`)
+        return res.status(404).send({auth: false})
     }
 
-    // check if port is valid
-    if (!VALID_PORTS.includes(port)) {
-        console.log(`port ${port} not valid`)
-        return res.status(404).send("port not valid")
+    if (BANNED_PORTS.includes(port)) {
+        console.log(`user with port ${port} banned`)
+        return res.status(404).send({auth: false})
     }
 
-    // check if token is valid
-    if (!VALID_TOKENS.includes(token)) {
-        console.log(`token ${token} not valid`)
-        return res.status(404).send("token not valid")
+    if (!VALID_PORTS.includes(port) || !VALID_TOKENS.includes(token)) {
+        console.log(`user with token ${token} and port ${port} not validated`)
+        return res.status(404).send({auth: false})
     }
+    
+    return res.status(200).send({auth: true})
 
-    if (VALID_PORTS.findIndex(element => element == port) != VALID_TOKENS.findIndex(element => element == token)) {
-        console.log(`Auth token not valid for port ${port}`)
-        return res.status(404).send("token not valid for port")
-    }	
-    // send message to all valid clients
-    for (let i = 0; i < VALID_TOKENS.length; i++) {
-        if (VALID_TOKENS[i] != token) {
-            console.log(`sending message to ${VALID_TOKENS[i]} with port ${VALID_PORTS[i]}`)
-            // send message to client
-            sendMsg(VALID_PORTS[i], msg, port)
-            
-        }
-    }
-    return res.status(200).send("msg sent")
-
+    
 })
 
 
