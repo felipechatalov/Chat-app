@@ -1,104 +1,88 @@
-const express = require('express')
-const cors = require('cors')
+var amqp = require('amqplib/callback_api');
 const axios = require('axios')
+const { MongoClient } = require('mongodb');
 
-const app = express()
-var port = 8080
-app.use(cors())
+const USER = process.env.MONGO_USER
+const PSSW = process.env.MONGO_PSSW
+DB_URI = `mongodb+srv://${USER}:${PSSW}@sist-dist.jbuya9g.mongodb.net/`
+const client = new MongoClient(DB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+client.connect()
 
-PUBLIC_SERVER_TOKEN = "publicservertoken"
-PRIVATE_SERVER_TOKEN = "privateservertoken"
 
-PRIVATE_AUT_TOKEN = "privateauttoken"
+async function insertInDb(jsonData) {
 
-VALID_CLIENTS_PORTS = []
+    const database = client.db('trabalho');
+    const collection = database.collection('mensagens');
 
-async function sendMsg(dst, msg, src) {
-    var url = "http://localhost:" + dst + "/msg"
-
-    const response = await axios.post(url, null, {params: {token: PUBLIC_SERVER_TOKEN, port: src, msg: msg}})
-    .then((response) => {
-        console.log(`msg sent to ${dst}`)
-    })
-    .catch((error) => {
-        console.error(error)
-    })
+    const result = await collection.insertOne(jsonData);
+    console.log(`Msg inserida com _id: ${result.insertedId}`);
+    
 }
 
-// ask for a validation token to aut server
-app.get("/gettoken", (req, res) => {
-    let key = req.query.key
-    let port = req.query.port
-    
-    var url = "http://localhost:3001/gettoken"
-    console.log("asking for token, port, key: " + url + " " + port + " " + key)
-    axios.get(url, {params: {port: port, key: key, server_token: PRIVATE_SERVER_TOKEN}})
-    .then((response) => {
-        console.log(`[SERVER] Token received: ${response.data.token}`)
-        return res.status(200).json({ token: response.data.token})
-    })
-    .catch((error) => {
-        console.error(error)
-    })
-})
+var clientReceiver = 'clienteReceiver'
+var clientSender = 'clienteSender'
 
-async function isClientAuthenticated(token, port) {
-    var url = "http://localhost:3001/auth"
-    const response = await axios.get(url, {params: {token: token, port: port, server_token: PRIVATE_SERVER_TOKEN}})
-    .then((response) => {
-        console.log(`Client is authenticated - ${response.data.auth}`)
-        return response.data.token
-    })
-    .catch((error) => {
-        console.error(error)
-    })
-}
 
-// update client list based on tokens
-app.post("/clients", (req, res) => {
-    let aut_token = req.query.aut_token
-    let valid_ports = req.query.valid_ports
-
-    console.log(`[SERVER] Updating client list`)
-    console.log(`[SERVER] Aut token: ${aut_token}`)
-    console.log(`[SERVER] Valid ports: ${valid_ports}`)
-
-    // check if aut server is authenticated
-    if (aut_token != PRIVATE_AUT_TOKEN) {
-        return res.status(404).send("Auth token not valid")
+// receive messages, check if authenticated, if yes, send to queue to all clients (rabbitmq)
+amqp.connect('amqp://localhost', function(error0, connection) {
+    if (error0) {
+        throw error0;
     }
-
-    VALID_CLIENTS_PORTS = valid_ports.split(",")
-    console.log(`[SERVER] Updated valid ports: ${VALID_CLIENTS_PORTS}`)
-    return res.status(200).send("client list updated")
-})
-
-app.post("/msg", (req, res) => {
-    let token = req.query.token
-    let msg = req.query.msg
-    let port = req.query.port
-
-    
-
-    // check if client is authenticated
-    let auth = isClientAuthenticated(token, port)
-    if (auth == false) {
-        return res.status(404).send("[ERROR] - client not authenticated")
-    }
-
-    // if authenticated, send msg to all other clients
-
-    for (let i = 0; i < VALID_CLIENTS_PORTS.length; i++) {
-        if (VALID_CLIENTS_PORTS[i] != port) {
-            //console.log(`sending message to client ${VALID_CLIENTS_PORTS[i]}`)
-            sendMsg(VALID_CLIENTS_PORTS[i], msg, port)
+    connection.createChannel(function(error1, channel) {
+        if (error1) {
+            throw error1;
         }
-    }
-    return res.status(200).send("message sent")
-    
-})
+
+        var exchange = 'chat'
+        channel.assertExchange(exchange, 'fanout', {
+            durable: false
+        });
 
 
 
-app.listen(port, () => {console.log("Server is running on port: " + port)})
+        
+        channel.assertQueue(clientSender, {
+            durable: false
+        })
+        console.log(" [*] Waiting for messages in %s. To exit press CTRL+C", clientReceiver);
 
+
+
+        function sendToQueue(token, msg) {
+            tosend = '{"token": ' + token + ', "msg": "' + msg + '"}'
+            channel.publish(exchange, '', Buffer.from(tosend));
+        }
+
+        function sendIfAuthenticated(token, msg) {
+            axios.get(`http://localhost:3001/auth?token=${token}`)
+                .then((response) => {
+                    if (response.data.auth) {
+                        console.log(`[SERVER] Client with token ${token} is authenticated, message sent to queue`)
+                        sendToQueue(token, msg)
+                        jsonData = {
+                            "token": token,
+                            "msg": msg
+                        }
+                        insertInDb(jsonData)
+                    } else {
+                        console.log(`[SERVER] Client with token ${token} is not authenticated`)
+                    }
+                })
+                .catch((error) => {
+                    console.log(error)
+                })
+        }
+
+
+        channel.consume(clientSender, function(msg) {
+            console.log(" [x] Received %s", msg.content.toString());
+            json = JSON.parse(msg.content.toString())
+            token = json.token
+            msg = json.msg
+
+            sendIfAuthenticated(token, msg)
+        }, {
+            noAck: true
+        });
+    });
+});

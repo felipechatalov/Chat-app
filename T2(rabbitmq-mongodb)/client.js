@@ -1,109 +1,61 @@
-const express = require('express')
-const cors = require('cors')
-const axios = require('axios')
+var amqp = require('amqplib/callback_api');
 
-const app = express()
-
-app.use(express.json())
-
-
-const base_url = "http://localhost:";
-
-
-
-var PORT = 3000
-PRIVATE_KEY = generateKey(9999)
-var TOKEN = ""
-var SERVER_TOKEN = "publicservertoken"
-
-if (process.argv.length > 2) {
-    PORT = process.argv[2]
-}
-if (process.argv.length > 3) {
-    PORT = process.argv[2]
-    PRIVATE_KEY = process.argv[3]
+SELF_TOKEN = 5001
+if (process.argv.length == 3) {
+    SELF_TOKEN = process.argv[2]
 }
 
-PUBLIC_KEY = PRIVATE_KEY + "pblc"
-
-
-// random key generator
-function generateKey(x) {
-    let number = Math.floor(Math.random() * x).toString()
-    while (number.length < 4) {
-        number = "0" + number
+var clientReceiver = 'clienteReceiver'
+var clientSender = 'clienteSender'
+console.log(`Client token: ${SELF_TOKEN}`)
+// receive messages, check if authenticated, if yes, send to queue to all clients (rabbitmq)
+amqp.connect('amqp://localhost', function(error0, connection) {
+    if (error0) {
+        throw error0;
     }
-    return number
-}
+    connection.createChannel(function(error1, channel) {
+        if (error1) {
+            throw error1;
+        }
 
-// ask for a validation token to aut server
-// based on public key
-// the server then holds the public key and the port associated with the given token
-// for future validation
-async function getToken(){
-    var temp = base_url + "8080/gettoken"
-    console.log("asking for token: " + temp)
-    await axios.get(temp, {params: {port: PORT, key: PUBLIC_KEY}})
-    .then((response) => {
-        TOKEN = response.data.token
-        console.log(`[Token Received]    ${PORT}: ${TOKEN}`)
-        return response.data.token
-    })
-    .catch((error) => {
-        console.error(error)
-    })
-}
+        var exchange = 'chat'
 
-// used to receive messages
-app.post("/msg", (req, res) => {
-    let msg = req.query.msg
-    let port = req.query.port
-    // need to verify the auth token from the server sending the msg
-    let token = req.query.token
-    if (token != SERVER_TOKEN) {
-        // console.log("Auth token not valid")
-        return res.status(404).send("Auth token not valid")
-    }
-    console.log(`[Received Message]  ${port}: ${msg}`)
+        channel.assertExchange(exchange, 'fanout', {
+            durable: false
+        });
 
-    return res.status(200).send("message received")
-})
+        channel.assertQueue('', {
+            exclusive:true
+        }, function(error2, q) {
+            if (error2){
+                throw error2
+            }
 
+            console.log(" [*] Waiting for messages in %s. To exit press CTRL+C", q.queue);
+            channel.bindQueue(q.queue, exchange, '');
 
-async function sendMsgToAll(msg){
-    var url = base_url + "8080/msg"
-    // try {
-    //     const response = await axios.post(url, null, {params: {token: TOKEN, port: PORT, msg: msg}})
-    //     console.log(`[Sent Message]      ${PORT}: ${msg}`)
-    //     return response.data
-    // } catch (error) {
-    //     console.error(error)
-    // }
-    axios.post(url, null, {params: {token: TOKEN, port: PORT, msg: msg}})
-    .then((response) => {
-        console.log(`[Sent Message]      ${PORT}: ${msg}`)
-    })
-    .catch((error) => {
-        console.error(error)
-    })
+            channel.consume(q.queue, function(msg) {
+                if (msg.content) {
+                    json = JSON.parse(msg.content.toString())
+                    token = json.token
+                    msg = json.msg
+    
+                    if (token != SELF_TOKEN) {
+                        console.log(`[${token}]: ${msg}`)
+                    }
+                    else{
+                        console.log(`[SENT]: ${msg}`)
+                    } 
+                }}, 
+                {
+                noAck: true
+            });
 
-}
+            setInterval(() => {
+                msg = '{"token": "' + SELF_TOKEN + '", "msg": "Hello world from client ' + SELF_TOKEN + '"}'
+                channel.sendToQueue(clientSender, Buffer.from(msg))
+            }, 3000);
 
-// used to send messages after a conversation is started
-// only if the aut server validates the key + port of both clients
-app.get("/talk", (req, res) => {
-    let msg = req.query.msg
-
-    // send message to dst
-    sendMsgToAll(msg)
-    return res.status(200).send("message sent")
-})
-
-function main(){
-    getToken()
-}
-main()
-
-app.listen(PORT, () => {console.log("Client server " + PRIVATE_KEY + " is running on port: " + PORT)})
-
-
+        });
+    });
+});
