@@ -1,13 +1,13 @@
 var amqp = require('amqplib/callback_api');
 
-SELF_TOKEN = 5001
+SELF_PORT = 5001
 if (process.argv.length == 3) {
-    SELF_TOKEN = process.argv[2]
+    SELF_PORT = process.argv[2]
 }
 
 var clientReceiver = 'clienteReceiver'
 var clientSender = 'clienteSender'
-console.log(`Client token: ${SELF_TOKEN}`)
+console.log(`Client token: ${SELF_PORT}`)
 // receive messages, check if authenticated, if yes, send to queue to all clients (rabbitmq)
 amqp.connect('amqp://localhost', function(error0, connection) {
     if (error0) {
@@ -31,7 +31,7 @@ amqp.connect('amqp://localhost', function(error0, connection) {
                 throw error2
             }
 
-            console.log(" [*] Waiting for messages in %s. To exit press CTRL+C", q.queue);
+            console.log("[Client] Waiting for other clients messages...");
             channel.bindQueue(q.queue, exchange, '');
 
             channel.consume(q.queue, function(msg) {
@@ -40,7 +40,7 @@ amqp.connect('amqp://localhost', function(error0, connection) {
                     token = json.token
                     msg = json.msg
     
-                    if (token != SELF_TOKEN) {
+                    if (token != SELF_PORT) {
                         console.log(`[${token}]: ${msg}`)
                     }
                     else{
@@ -52,7 +52,7 @@ amqp.connect('amqp://localhost', function(error0, connection) {
             });
 
             setInterval(() => {
-                msg = '{"token": "' + SELF_TOKEN + '", "msg": "Hello world from client ' + SELF_TOKEN + '"}'
+                msg = '{"token": "' + SELF_PORT + '", "msg": "Hello world from client ' + SELF_PORT + '"}'
                 channel.sendToQueue(clientSender, Buffer.from(msg))
             }, 3000);
 
